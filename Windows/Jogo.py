@@ -7,30 +7,30 @@ from threading import Lock
 import os
 from colorama import init, Fore, Style
 
-class GameServer:
+class Jogo:
     def __init__(self, host='localhost', port=5000):
         self.host = host
         self.port = port
-        self.map_size = 8
-        self.treasure_room_size = 4  # Tamanho da sala do tesouro
-        self.num_treasures = 15
-        self.main_map = [["." for _ in range(self.map_size)] for _ in range(self.map_size)]
-        self.treasure_room = None
-        self.map_lock = Lock()
-        self.player_lock = Lock()
-        self.game_active = True
+        self.mapaTam = 8
+        self.salaTam = 4  # Tamanho da sala do tesouro
+        self.numTesouros = 15
+        self.mapa = [["." for _ in range(self.mapaTam)] for _ in range(self.mapaTam)]
+        self.salaTesouro = None
+        self.travaMapa = Lock()
+        self.travaJogador = Lock()
+        self.ativo = True
         
         # Game state
-        self.players = {}
-        self.players_in_treasure_room = set()  # Conjunto para rastrear jogadores na sala
-        self.collected_treasures = 0
-        self.total_treasures = self.num_treasures + 5
+        self.jogadores = {}
+        self.jogadoresSalaTesouro = set()  # Conjunto para rastrear jogadores na sala
+        self.tesourosColetados = 0
+        self.tesourosTotais = self.numTesouros + 5
         
         # Treasure room
-        self.treasure_room_x = random.randint(0, self.map_size - 1)
-        self.treasure_room_y = random.randint(0, self.map_size - 1)
-        self.treasures_in_room = 5
-        self.room_lock = Lock()
+        self.salaTesouro_x = random.randint(0, self.mapaTam - 1)
+        self.salaTesouro_y = random.randint(0, self.mapaTam - 1)
+        self.tesourosNaSala = 5
+        self.travaSala = Lock()
         
         init(autoreset=True)
         self._initialize_maps()
@@ -39,230 +39,230 @@ class GameServer:
         self.server_socket.listen(5)
     
     def _initialize_maps(self):
-        with self.map_lock:
+        with self.travaMapa:
             # Inicializa mapa principal
-            for _ in range(self.num_treasures):
+            for _ in range(self.numTesouros):
                 while True:
-                    x, y = random.randint(0, self.map_size - 1), random.randint(0, self.map_size - 1)
-                    if self.main_map[x][y] == "." and (x, y) != (self.treasure_room_x, self.treasure_room_y):
-                        self.main_map[x][y] = str(random.randint(1, 9))
+                    x, y = random.randint(0, self.mapaTam - 1), random.randint(0, self.mapaTam - 1)
+                    if self.mapa[x][y] == "." and (x, y) != (self.salaTesouro_x, self.salaTesouro_y):
+                        self.mapa[x][y] = str(random.randint(1, 9))
                         break
             
             # Marca a entrada da sala do tesouro
-            self.main_map[self.treasure_room_x][self.treasure_room_y] = "X"
+            self.mapa[self.salaTesouro_x][self.salaTesouro_y] = "X"
             
             # Inicializa a sala do tesouro
-            self._initialize_treasure_room()
+            self._initialize_salaTesouro()
     
-    def _initialize_treasure_room(self):
-        self.treasure_room = [["." for _ in range(self.treasure_room_size)] 
-                            for _ in range(self.treasure_room_size)]
+    def _initialize_salaTesouro(self):
+        self.salaTesouro = [["." for _ in range(self.salaTam)] 
+                            for _ in range(self.salaTam)]
         
         # Coloca tesouros na sala
-        treasures_placed = 0
-        while treasures_placed < self.treasures_in_room:
-            x = random.randint(0, self.treasure_room_size - 1)
-            y = random.randint(0, self.treasure_room_size - 1)
-            if self.treasure_room[x][y] == ".":
-                self.treasure_room[x][y] = str(random.randint(5, 9))  # Tesouros maiores na sala especial
-                treasures_placed += 1
+        tesourosColocados = 0
+        while tesourosColocados < self.tesourosNaSala:
+            x = random.randint(0, self.salaTam - 1)
+            y = random.randint(0, self.salaTam - 1)
+            if self.salaTesouro[x][y] == ".":
+                self.salaTesouro[x][y] = str(random.randint(5, 9))  # Tesouros maiores na sala especial
+                tesourosColocados += 1
     
-    def get_game_state(self, player_id=None):
-        with self.player_lock:
-            if player_id in self.players_in_treasure_room:
+    def pegaJogo(self, jogadorId=None):
+        with self.travaJogador:
+            if jogadorId in self.jogadoresSalaTesouro:
                 return {
-                    'map': self.treasure_room,
-                    'players': {pid: data for pid, data in self.players.items() 
-                              if pid in self.players_in_treasure_room},
-                    'treasures_left': self.total_treasures - self.collected_treasures,
-                    'room_treasures': self.treasures_in_room,
-                    'in_treasure_room': True,
-                    'map_size': self.treasure_room_size
+                    'map': self.salaTesouro,
+                    'jogadores': {pid: data for pid, data in self.jogadores.items() 
+                              if pid in self.jogadoresSalaTesouro},
+                    'treasures_left': self.tesourosTotais - self.tesourosColetados,
+                    'room_treasures': self.tesourosNaSala,
+                    'naSalaTesouro': True,
+                    'mapaTam': self.salaTam
                 }
             else:
                 return {
-                    'map': self.main_map,
-                    'players': {pid: data for pid, data in self.players.items() 
-                              if pid not in self.players_in_treasure_room},
-                    'treasures_left': self.total_treasures - self.collected_treasures,
-                    'room_treasures': self.treasures_in_room,
-                    'in_treasure_room': False,
-                    'map_size': self.map_size
+                    'map': self.mapa,
+                    'jogadores': {pid: data for pid, data in self.jogadores.items() 
+                              if pid not in self.jogadoresSalaTesouro},
+                    'treasures_left': self.tesourosTotais - self.tesourosColetados,
+                    'room_treasures': self.tesourosNaSala,
+                    'naSalaTesouro': False,
+                    'mapaTam': self.mapaTam
                 }
     
-    def handle_client(self, client_socket, player_id):
+    def handle_client(self, client_socket, jogadorId):
         try:
-            while self.game_active:
+            while self.ativo:
                 try:
                     data = client_socket.recv(1024).decode()
                     if not data:
                         break
                     
-                    command = json.loads(data)
-                    response = self.process_command(player_id, command)
+                    comando = json.loads(data)
+                    response = self.processosComando(jogadorId, comando)
                     client_socket.send(json.dumps(response).encode())
                     
-                    self.display_server_status()
+                    self.display()
                     
-                    if self.collected_treasures >= self.total_treasures:
-                        self.end_game()
+                    if self.tesourosColetados >= self.tesourosTotais:
+                        self.fim()
                         
                 except (json.JSONDecodeError, socket.error):
                     break
         finally:
-            self.remove_player(player_id)
+            self.removerJogador(jogadorId)
             client_socket.close()
-            self.display_server_status()
+            self.display()
     
-    def process_command(self, player_id, command):
-        cmd_type = command.get('type')
+    def processosComando(self, jogadorId, comando):
+        cmd_type = comando.get('type')
         if cmd_type == 'move':
-            return self.move_player(player_id, command['direction'])
+            return self.moverJogador(jogadorId, comando['direction'])
         elif cmd_type == 'enter_room':
-            return self.enter_treasure_room(player_id)
+            return self.entrarSalaTesouro(jogadorId)
         elif cmd_type == 'leave_room':
-            return self.leave_treasure_room(player_id)
+            return self.sairSalaTesouro(jogadorId)
         elif cmd_type == 'get_state':
-            return self.get_game_state(player_id)
+            return self.pegaJogo(jogadorId)
         return {'status': 'error', 'message': 'Comando inválido'}
     
-    def move_player(self, player_id, direction):
-        with self.map_lock:
-            if player_id not in self.players:
+    def moverJogador(self, jogadorId, direction):
+        with self.travaMapa:
+            if jogadorId not in self.jogadores:
                 return {'status': 'error', 'message': 'Jogador não encontrado'}
             
-            in_treasure_room = player_id in self.players_in_treasure_room
-            current_map = self.treasure_room if in_treasure_room else self.main_map
-            map_size = self.treasure_room_size if in_treasure_room else self.map_size
+            naSalaTesouro = jogadorId in self.jogadoresSalaTesouro
+            mapaAtual = self.salaTesouro if naSalaTesouro else self.mapa
+            mapaTam = self.salaTam if naSalaTesouro else self.mapaTam
             
-            x, y = self.players[player_id]['position']
-            new_x, new_y = x, y
+            x, y = self.jogadores[jogadorId]['position']
+            novoX, novoY = x, y
             
             if direction == 'up' and x > 0:
-                new_x = x - 1
-            elif direction == 'down' and x < map_size - 1:
-                new_x = x + 1
+                novoX = x - 1
+            elif direction == 'down' and x < mapaTam - 1:
+                novoX = x + 1
             elif direction == 'left' and y > 0:
-                new_y = y - 1
-            elif direction == 'right' and y < map_size - 1:
-                new_y = y + 1
+                novoY = y - 1
+            elif direction == 'right' and y < mapaTam - 1:
+                novoY = y + 1
             
-            if (new_x, new_y) != (x, y):
-                self.players[player_id]['position'] = (new_x, new_y)
+            if (novoX, novoY) != (x, y):
+                self.jogadores[jogadorId]['position'] = (novoX, novoY)
                 
-                if current_map[new_x][new_y].isdigit():
-                    value = int(current_map[new_x][new_y])
-                    self.players[player_id]['score'] += value
-                    self.collected_treasures += 1
-                    current_map[new_x][new_y] = "."
-                    if in_treasure_room:
-                        self.treasures_in_room -= 1
+                if mapaAtual[novoX][novoY].isdigit():
+                    value = int(mapaAtual[novoX][novoY])
+                    self.jogadores[jogadorId]['score'] += value
+                    self.tesourosColetados += 1
+                    mapaAtual[novoX][novoY] = "."
+                    if naSalaTesouro:
+                        self.tesourosNaSala -= 1
             
-            return self.get_game_state(player_id)
+            return self.pegaJogo(jogadorId)
     
-    def enter_treasure_room(self, player_id):
-        with self.room_lock:
-            player = self.players.get(player_id)
+    def entrarSalaTesouro(self, jogadorId):
+        with self.travaSala:
+            player = self.jogadores.get(jogadorId)
             if not player:
                 return {'status': 'error', 'message': 'Jogador não encontrado'}
             
             x, y = player['position']
-            if (x, y) != (self.treasure_room_x, self.treasure_room_y):
+            if (x, y) != (self.salaTesouro_x, self.salaTesouro_y):
                 return {'status': 'error', 'message': 'Não está na entrada'}
             
             # Move o jogador para a sala do tesouro
-            self.players_in_treasure_room.add(player_id)
-            self.players[player_id]['position'] = (0, 0)  # Posição inicial na sala
+            self.jogadoresSalaTesouro.add(jogadorId)
+            self.jogadores[jogadorId]['position'] = (0, 0)  # Posição inicial na sala
             
             return {
                 'status': 'success',
                 'message': 'Bem-vindo à sala do tesouro! Pressione ESC para sair',
-                'state': self.get_game_state(player_id)
+                'state': self.pegaJogo(jogadorId)
             }
     
-    def leave_treasure_room(self, player_id):
-        with self.room_lock:
-            if player_id in self.players_in_treasure_room:
-                self.players_in_treasure_room.remove(player_id)
-                self.players[player_id]['position'] = (self.treasure_room_x, self.treasure_room_y)
+    def sairSalaTesouro(self, jogadorId):
+        with self.travaSala:
+            if jogadorId in self.jogadoresSalaTesouro:
+                self.jogadoresSalaTesouro.remove(jogadorId)
+                self.jogadores[jogadorId]['position'] = (self.salaTesouro_x, self.salaTesouro_y)
                 
                 return {
                     'status': 'success',
                     'message': 'Voltou ao mapa principal',
-                    'state': self.get_game_state(player_id)
+                    'state': self.pegaJogo(jogadorId)
                 }
             return {'status': 'error', 'message': 'Jogador não está na sala'}
     
-    def add_player(self, player_id):
-        with self.player_lock:
-            start_x, start_y = random.randint(0, self.map_size - 1), random.randint(0, self.map_size - 1)
-            while self.main_map[start_x][start_y] != ".":
-                start_x, start_y = random.randint(0, self.map_size - 1), random.randint(0, self.map_size - 1)
+    def addJogador(self, jogadorId):
+        with self.travaJogador:
+            inicioX, inicioY = random.randint(0, self.mapaTam - 1), random.randint(0, self.mapaTam - 1)
+            while self.mapa[inicioX][inicioY] != ".":
+                inicioX, inicioY = random.randint(0, self.mapaTam - 1), random.randint(0, self.mapaTam - 1)
             
-            self.players[player_id] = {
-                'position': (start_x, start_y),
+            self.jogadores[jogadorId] = {
+                'position': (inicioX, inicioY),
                 'score': 0
             }
     
-    def remove_player(self, player_id):
-        with self.player_lock:
-            if player_id in self.players:
-                del self.players[player_id]
-            if player_id in self.players_in_treasure_room:
-                self.players_in_treasure_room.remove(player_id)
+    def removerJogador(self, jogadorId):
+        with self.travaJogador:
+            if jogadorId in self.jogadores:
+                del self.jogadores[jogadorId]
+            if jogadorId in self.jogadoresSalaTesouro:
+                self.jogadoresSalaTesouro.remove(jogadorId)
     
-    def display_server_status(self):
+    def display(self):
         os.system('cls')
         print(Fore.CYAN + "==== Status do Servidor ====" + Style.RESET_ALL)
         print(f"Servidor rodando em {self.host}:{self.port}")
-        print(f"Jogadores conectados: {len(self.players)}")
-        print(f"Jogadores na sala do tesouro: {len(self.players_in_treasure_room)}")
-        print(f"Tesouros coletados: {self.collected_treasures}/{self.total_treasures}")
-        print(f"Tesouros na sala especial: {self.treasures_in_room}")
+        print(f"Jogadores conectados: {len(self.jogadores)}")
+        print(f"Jogadores na sala do tesouro: {len(self.jogadoresSalaTesouro)}")
+        print(f"Tesouros coletados: {self.tesourosColetados}/{self.tesourosTotais}")
+        print(f"Tesouros na sala especial: {self.tesourosNaSala}")
         print("\nPlacar:")
-        for pid, player in self.players.items():
-            room_status = "na sala do tesouro" if pid in self.players_in_treasure_room else "no mapa principal"
+        for pid, player in self.jogadores.items():
+            room_status = "na sala do tesouro" if pid in self.jogadoresSalaTesouro else "no mapa principal"
             print(f"Jogador {pid}: {player['score']} pts ({room_status})")
         print("\nCtrl+C para sair")
         print(Fore.CYAN + "=========================" + Style.RESET_ALL)
     
-    def end_game(self):
-        self.game_active = False
-        if self.players:
-            winner_id = max(self.players.items(), key=lambda x: x[1]['score'])[0]
-            winner_score = self.players[winner_id]['score']
-            print(Fore.GREEN + f"\nJogo finalizado! Jogador {winner_id} venceu com {winner_score} pontos!" + Style.RESET_ALL)
+    def fim(self):
+        self.ativo = False
+        if self.jogadores:
+            ganhador = max(self.jogadores.items(), key=lambda x: x[1]['score'])[0]
+            ganhadorPlacar = self.jogadores[ganhador]['score']
+            print(Fore.GREEN + f"\nJogo finalizado! Jogador {ganhador} venceu com {ganhadorPlacar} pontos!" + Style.RESET_ALL)
         return {
             'status': 'game_over',
-            'winner': winner_id if self.players else None,
-            'score': winner_score if self.players else 0
+            'winner': ganhador if self.jogadores else None,
+            'score': ganhadorPlacar if self.jogadores else 0
         }
     
     def run(self):
         print(Fore.CYAN + f"Servidor iniciado em {self.host}:{self.port}" + Style.RESET_ALL)
         try:
-            self.display_server_status()
-            while self.game_active:
+            self.display()
+            while self.ativo:
                 client_socket, addr = self.server_socket.accept()
-                player_id = random.randint(1000, 9999)
-                self.add_player(player_id)
+                jogadorId = random.randint(1000, 9999)
+                self.addJogador(jogadorId)
                 
-                client_socket.send(str(player_id).encode())
+                client_socket.send(str(jogadorId).encode())
                 
                 thread = threading.Thread(target=self.handle_client, 
-                                       args=(client_socket, player_id))
+                                       args=(client_socket, jogadorId))
                 thread.daemon = True
                 thread.start()
                 
-                self.display_server_status()
+                self.display()
                 
         except KeyboardInterrupt:
             print(Fore.YELLOW + "\nDesligando servidor..." + Style.RESET_ALL)
         finally:
-            self.game_active = False
+            self.ativo = False
             self.server_socket.close()
 
 if __name__ == "__main__":
-    server = GameServer()
+    server = Jogo()
     server.run()
     

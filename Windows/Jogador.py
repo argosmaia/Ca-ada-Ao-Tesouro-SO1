@@ -7,70 +7,70 @@ import signal
 from colorama import init, Fore, Style
 import sys
 
-class GameClient:
+class ClienteJogo:
     def __init__(self, host='localhost', port=5000):
         self.host = host
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.player_id = None
-        self.game_state = None
-        self.running = True
-        self.last_render = ""
+        self.idJogador = None
+        self.estadoJogo = None
+        self.executando = True
+        self.ultimoRender = ""
         init(autoreset=True)
         
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._manipuladorSinal)
+        signal.signal(signal.SIGTERM, self._manipuladorSinal)
     
-    def _signal_handler(self, signum, frame):
+    def _manipuladorSinal(self, signum, frame):
         pass
 
-    def clear_screen(self):
+    def limparTela(self):
         sys.stdout.write("\033[H")
         sys.stdout.flush()
         
-    def connect(self):
+    def conectar(self):
         try:
             self.socket.connect((self.host, self.port))
-            self.player_id = int(self.socket.recv(1024).decode())
+            self.idJogador = int(self.socket.recv(1024).decode())
             return True
         except socket.error as e:
             print(f"Erro de conexão: {e}")
             return False
     
-    def send_command(self, command):
+    def enviarComando(self, comando):
         try:
-            self.socket.send(json.dumps(command).encode())
-            response = self.socket.recv(1024).decode()
-            return json.loads(response)
+            self.socket.send(json.dumps(comando).encode())
+            resposta = self.socket.recv(1024).decode()
+            return json.loads(resposta)
         except (socket.error, json.JSONDecodeError) as e:
             print(f"Erro de comunicação: {e}")
-            self.running = False
+            self.executando = False
             return None
     
-    def update_game_state(self):
-        response = self.send_command({'type': 'get_state'})
-        if response:
-            self.game_state = response
+    def atualizarEstadoJogo(self):
+        resposta = self.enviarComando({'type': 'get_state'})
+        if resposta:
+            self.estadoJogo = resposta
 
-    def get_cell_content(self, x, y):
+    def obterConteudoCelula(self, x, y):
         # Primeiro verifica se há um jogador na célula
-        if self.game_state and 'players' in self.game_state:
-            for pid, pdata in self.game_state['players'].items():
+        if self.estadoJogo and 'players' in self.estadoJogo:
+            for pid, pdata in self.estadoJogo['players'].items():
                 if pdata['position'] == (x, y):
-                    if str(pid) == str(self.player_id):
+                    if str(pid) == str(self.idJogador):
                         return ('P', Fore.GREEN)
                     return ('J', Fore.RED)
         
         # Se não há jogador, retorna o conteúdo do mapa
-        cell = self.game_state['map'][x][y]
-        if cell.isdigit():
-            return (cell, Fore.YELLOW)
-        elif cell == 'X':
-            return (cell, Fore.CYAN)
-        return (cell, Style.RESET_ALL)
+        celula = self.estadoJogo['map'][x][y]
+        if celula.isdigit():
+            return (celula, Fore.YELLOW)
+        elif celula == 'X':
+            return (celula, Fore.CYAN)
+        return (celula, Style.RESET_ALL)
 
-    def generate_screen_buffer(self):
-        if not self.game_state:
+    def gerarBufferTela(self):
+        if not self.estadoJogo:
             return ""
 
         buffer = []
@@ -78,27 +78,27 @@ class GameClient:
         buffer.append("")
 
         # Mapa com índices
-        buffer.append("   " + " ".join([str(i) for i in range(len(self.game_state['map'][0]))]))
+        buffer.append("   " + " ".join([str(i) for i in range(len(self.estadoJogo['map'][0]))]))
         
-        for i, row in enumerate(self.game_state['map']):
-            line = f"{i:2} "
-            for j, _ in enumerate(row):
-                content, color = self.get_cell_content(i, j)
-                line += color + content + " " + Style.RESET_ALL
-            buffer.append(line)
+        for i, linha in enumerate(self.estadoJogo['map']):
+            linhaBuffer = f"{i:2} "
+            for j, _ in enumerate(linha):
+                conteudo, cor = self.obterConteudoCelula(i, j)
+                linhaBuffer += cor + conteudo + " " + Style.RESET_ALL
+            buffer.append(linhaBuffer)
         
-        player = self.game_state['players'].get(str(self.player_id))
-        if player:
+        jogador = self.estadoJogo['players'].get(str(self.idJogador))
+        if jogador:
             buffer.append("")
             buffer.append(Fore.CYAN + "="*40 + Style.RESET_ALL)
-            buffer.append(f"Pontuação: {Fore.GREEN}{player['score']}{Style.RESET_ALL} | "
-                        f"Tesouros restantes: {Fore.YELLOW}{self.game_state['treasures_left']}{Style.RESET_ALL}")
+            buffer.append(f"Pontuação: {Fore.GREEN}{jogador['score']}{Style.RESET_ALL} | "
+                        f"Tesouros restantes: {Fore.YELLOW}{self.estadoJogo['treasures_left']}{Style.RESET_ALL}")
             
-            current_pos = player['position']
-            for i, row in enumerate(self.game_state['map']):
-                if 'X' in row and current_pos == (i, row.index('X')):
+            posicaoAtual = jogador['position']
+            for i, linha in enumerate(self.estadoJogo['map']):
+                if 'X' in linha and posicaoAtual == (i, linha.index('X')):
                     buffer.append(Fore.YELLOW + 
-                                f"Sala do tesouro! Pressione E para entrar ({self.game_state['room_treasures']} restantes)" + 
+                                f"Sala do tesouro! Pressione E para entrar ({self.estadoJogo['room_treasures']} restantes)" + 
                                 Style.RESET_ALL)
             
             buffer.append("\nControles: WASD/Setas para mover, E para entrar na sala, Q para sair")
@@ -106,19 +106,19 @@ class GameClient:
 
         return "\n".join(buffer)
     
-    def draw_screen(self):
-        if not self.game_state:
+    def desenharTela(self):
+        if not self.estadoJogo:
             return
         
-        new_render = self.generate_screen_buffer()
+        novoRender = self.gerarBufferTela()
         
-        if new_render != self.last_render:
-            self.clear_screen()
-            print(new_render)
-            self.last_render = new_render
+        if novoRender != self.ultimoRender:
+            self.limparTela()
+            print(novoRender)
+            self.ultimoRender = novoRender
     
-    def is_valid_key(self, key):
-        valid_keys = [
+    def chaveValida(self, chave):
+        chavesValidas = [
             b'w', b'a', b's', b'd',
             b'W', b'A', b'S', b'D',
             b'e', b'E',  # Trocado de 'k'/'K' para 'e'/'E'
@@ -126,10 +126,10 @@ class GameClient:
             b'H', b'P', b'K', b'M',
             b'\xe0'
         ]
-        return key in valid_keys
+        return chave in chavesValidas
     
-    def handle_input(self):
-        key_mapping = {
+    def tratarEntrada(self):
+        mapeamentoTeclas = {
             b'H': 'up',    
             b'P': 'down',  
             b'K': 'left',  
@@ -144,82 +144,82 @@ class GameClient:
             b'D': 'right'
         }
         
-        while self.running:
+        while self.executando:
             try:
                 if msvcrt.kbhit():
-                    key = msvcrt.getch()
+                    chave = msvcrt.getch()
                     
-                    if not self.is_valid_key(key):
+                    if not self.chaveValida(chave):
                         continue
                     
-                    if key in key_mapping:
-                        response = self.send_command({
+                    if chave in mapeamentoTeclas:
+                        resposta = self.enviarComando({
                             'type': 'move',
-                            'direction': key_mapping[key]
+                            'direction': mapeamentoTeclas[chave]
                         })
-                        if response:
-                            self.game_state = response
+                        if resposta:
+                            self.estadoJogo = resposta
                     
-                    elif key == b'\xe0':
-                        key = msvcrt.getch()
-                        if key in key_mapping:
-                            response = self.send_command({
+                    elif chave == b'\xe0':
+                        chave = msvcrt.getch()
+                        if chave in mapeamentoTeclas:
+                            resposta = self.enviarComando({
                                 'type': 'move',
-                                'direction': key_mapping[key]
+                                'direction': mapeamentoTeclas[chave]
                             })
-                            if response:
-                                self.game_state = response
+                            if resposta:
+                                self.estadoJogo = resposta
                     
-                    elif key in [b'e', b'E']:  # Trocado de 'k'/'K' para 'e'/'E'
-                        response = self.send_command({'type': 'enter_room'})
-                        if response and response.get('status') == 'success':
-                            self.game_state = response['state']
+                    elif chave in [b'e', b'E']:  # Trocado de 'k'/'K' para 'e'/'E'
+                        resposta = self.enviarComando({'type': 'enter_room'})
+                        if resposta and resposta.get('status') == 'success':
+                            self.estadoJogo = resposta['state']
                             time.sleep(0.1)
 
-                    elif key in [b'q', b'Q']:
-                        self.running = False
+                    elif chave in [b'q', b'Q']:
+                        self.executando = False
                         break
             
             except Exception:
                 continue
     
-    def setup_terminal(self):
+    def configurarTerminal(self):
         print("\033[2J", end='')
         print("\033[?25l", end='')
         print("\033[H", end='')
         sys.stdout.flush()
 
-    def restore_terminal(self):
+    def restaurarTerminal(self):
         print("\033[?25h", end='')
         sys.stdout.flush()
     
-    def run(self):
-        if self.connect():
+    def executar(self):
+        if self.conectar():
             try:
-                self.setup_terminal()
+                self.configurarTerminal()
                 
-                input_thread = threading.Thread(target=self.handle_input)
-                input_thread.daemon = True
-                input_thread.start()
+                threadEntrada = threading.Thread(target=self.tratarEntrada)
+                threadEntrada.daemon = True
+                threadEntrada.start()
 
-                while self.running:
+                while self.executando:
                     try:
-                        self.update_game_state()
-                        self.draw_screen()
+                        self.atualizarEstadoJogo()
+                        self.desenharTela()
                         time.sleep(0.05)
                     except Exception:
                         continue
                 
             finally:
-                self.restore_terminal()
+                self.restaurarTerminal()
                 self.socket.close()
 
 if __name__ == "__main__":
     while True:
         try:
-            client = GameClient()
-            client.run()
-            if not client.running:
+            cliente = ClienteJogo()
+            cliente.executar()
+            if not cliente.executando:
                 break
         except Exception:
             continue
