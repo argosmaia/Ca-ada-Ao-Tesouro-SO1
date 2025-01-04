@@ -7,21 +7,22 @@ import signal
 from colorama import init, Fore, Style
 import sys
 
-class ClienteJogo:
+#
+class Jogador:
     def __init__(self, host='localhost', port=5000):
         self.host = host
         self.port = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.idJogador = None
         self.estadoJogo = None
-        self.executando = True
-        self.ultimoRender = ""
+        self.ativo = True
+        self.ultimaRenderizacao = ""
         init(autoreset=True)
         
-        signal.signal(signal.SIGINT, self._manipuladorSinal)
-        signal.signal(signal.SIGTERM, self._manipuladorSinal)
+        signal.signal(signal.SIGINT, self._tratadorSinal)
+        signal.signal(signal.SIGTERM, self._tratadorSinal)
     
-    def _manipuladorSinal(self, signum, frame):
+    def _tratadorSinal(self, signum, frame):
         pass
 
     def limparTela(self):
@@ -44,30 +45,35 @@ class ClienteJogo:
             return json.loads(resposta)
         except (socket.error, json.JSONDecodeError) as e:
             print(f"Erro de comunicação: {e}")
-            self.executando = False
+            self.ativo = False
             return None
-    
+
     def atualizarEstadoJogo(self):
         resposta = self.enviarComando({'type': 'get_state'})
         if resposta:
             self.estadoJogo = resposta
 
     def obterConteudoCelula(self, x, y):
-        # Primeiro verifica se há um jogador na célula
-        if self.estadoJogo and 'players' in self.estadoJogo:
-            for pid, pdata in self.estadoJogo['players'].items():
-                if pdata['position'] == (x, y):
-                    if str(pid) == str(self.idJogador):
-                        return ('P', Fore.GREEN)
-                    return ('J', Fore.RED)
+        if not self.estadoJogo or 'jogadores' not in self.estadoJogo:
+            return ('.', Style.RESET_ALL)
+        
+        # Verifica se há um jogador na célula
+        for pid, dados in self.estadoJogo['jogadores'].items():
+            if dados['position'] == [x, y] or dados['position'] == (x, y):  # Aceita tanto lista quanto tupla
+                if str(pid) == str(self.idJogador):
+                    return ('P', Fore.GREEN)  # Jogador atual em verde
+                return ('J', Fore.RED)  # Outros jogadores em vermelho
         
         # Se não há jogador, retorna o conteúdo do mapa
-        celula = self.estadoJogo['map'][x][y]
-        if celula.isdigit():
-            return (celula, Fore.YELLOW)
-        elif celula == 'X':
-            return (celula, Fore.CYAN)
-        return (celula, Style.RESET_ALL)
+        try:
+            celula = self.estadoJogo['map'][x][y]
+            if celula.isdigit():
+                return (celula, Fore.YELLOW)  # Tesouros em amarelo
+            elif celula == 'X':
+                return (celula, Fore.CYAN)  # Entrada da sala em ciano
+            return (celula, Style.RESET_ALL)
+        except:
+            return ('.', Style.RESET_ALL)
 
     def gerarBufferTela(self):
         if not self.estadoJogo:
@@ -77,63 +83,70 @@ class ClienteJogo:
         buffer.append(Fore.YELLOW + "=== CAÇA AO TESOURO ===" + Style.RESET_ALL)
         buffer.append("")
 
-        # Mapa com índices
-        buffer.append("   " + " ".join([str(i) for i in range(len(self.estadoJogo['map'][0]))]))
-        
-        for i, linha in enumerate(self.estadoJogo['map']):
-            linhaBuffer = f"{i:2} "
-            for j, _ in enumerate(linha):
+        # Adiciona índices das colunas
+        buffer.append("   " + " ".join(str(i) for i in range(len(self.estadoJogo['map'][0]))))
+
+        # Gera o mapa
+        for i in range(len(self.estadoJogo['map'])):
+            linha = f"{i:2} "
+            for j in range(len(self.estadoJogo['map'][0])):
                 conteudo, cor = self.obterConteudoCelula(i, j)
-                linhaBuffer += cor + conteudo + " " + Style.RESET_ALL
-            buffer.append(linhaBuffer)
-        
-        jogador = self.estadoJogo['players'].get(str(self.idJogador))
-        if jogador:
+                linha += cor + conteudo + " " + Style.RESET_ALL
+            buffer.append(linha)
+
+        # Adiciona informações do jogador
+        if str(self.idJogador) in self.estadoJogo['jogadores']:
+            jogador = self.estadoJogo['jogadores'][str(self.idJogador)]
             buffer.append("")
             buffer.append(Fore.CYAN + "="*40 + Style.RESET_ALL)
             buffer.append(f"Pontuação: {Fore.GREEN}{jogador['score']}{Style.RESET_ALL} | "
                         f"Tesouros restantes: {Fore.YELLOW}{self.estadoJogo['treasures_left']}{Style.RESET_ALL}")
-            
-            posicaoAtual = jogador['position']
-            for i, linha in enumerate(self.estadoJogo['map']):
-                if 'X' in linha and posicaoAtual == (i, linha.index('X')):
-                    buffer.append(Fore.YELLOW + 
-                                f"Sala do tesouro! Pressione E para entrar ({self.estadoJogo['room_treasures']} restantes)" + 
-                                Style.RESET_ALL)
-            
+
+            # Verifica se o jogador está na entrada da sala do tesouro
+            pos = jogador['position']
+            if isinstance(pos, list):
+                pos = tuple(pos)
+            mapa = self.estadoJogo['map']
+            for i in range(len(mapa)):
+                if 'X' in mapa[i]:
+                    j = mapa[i].index('X')
+                    if pos == (i, j):
+                        buffer.append(Fore.YELLOW + 
+                                    f"Sala do tesouro! Pressione E para entrar ({self.estadoJogo['room_treasures']} restantes)" + 
+                                    Style.RESET_ALL)
+
             buffer.append("\nControles: WASD/Setas para mover, E para entrar na sala, Q para sair")
             buffer.append(Fore.CYAN + "="*40 + Style.RESET_ALL)
 
         return "\n".join(buffer)
-    
+
     def desenharTela(self):
         if not self.estadoJogo:
             return
-        
-        novoRender = self.gerarBufferTela()
-        
-        if novoRender != self.ultimoRender:
+
+        novaRenderizacao = self.gerarBufferTela()
+        if novaRenderizacao != self.ultimaRenderizacao:
             self.limparTela()
-            print(novoRender)
-            self.ultimoRender = novoRender
-    
-    def chaveValida(self, chave):
-        chavesValidas = [
+            print(novaRenderizacao)
+            self.ultimaRenderizacao = novaRenderizacao
+
+    def teclaValida(self, tecla):
+        teclasValidas = [
             b'w', b'a', b's', b'd',
             b'W', b'A', b'S', b'D',
-            b'e', b'E',  # Trocado de 'k'/'K' para 'e'/'E'
+            b'e', b'E',
             b'q', b'Q',
             b'H', b'P', b'K', b'M',
             b'\xe0'
         ]
-        return chave in chavesValidas
-    
-    def tratarEntrada(self):
+        return tecla in teclasValidas
+
+    def processarEntrada(self):
         mapeamentoTeclas = {
-            b'H': 'up',    
-            b'P': 'down',  
-            b'K': 'left',  
-            b'M': 'right', 
+            b'H': 'up',    # Seta para cima
+            b'P': 'down',  # Seta para baixo
+            b'K': 'left',  # Seta para esquerda
+            b'M': 'right', # Seta para direita
             b'w': 'up',
             b'W': 'up',
             b's': 'down',
@@ -144,45 +157,44 @@ class ClienteJogo:
             b'D': 'right'
         }
         
-        while self.executando:
+        while self.ativo:
             try:
                 if msvcrt.kbhit():
-                    chave = msvcrt.getch()
+                    tecla = msvcrt.getch()
                     
-                    if not self.chaveValida(chave):
+                    if not self.teclaValida(tecla):
                         continue
                     
-                    if chave in mapeamentoTeclas:
+                    if tecla in mapeamentoTeclas:
                         resposta = self.enviarComando({
                             'type': 'move',
-                            'direction': mapeamentoTeclas[chave]
+                            'direction': mapeamentoTeclas[tecla]
                         })
                         if resposta:
                             self.estadoJogo = resposta
                     
-                    elif chave == b'\xe0':
-                        chave = msvcrt.getch()
-                        if chave in mapeamentoTeclas:
+                    elif tecla == b'\xe0':  # Tecla especial (setas)
+                        tecla = msvcrt.getch()
+                        if tecla in mapeamentoTeclas:
                             resposta = self.enviarComando({
                                 'type': 'move',
-                                'direction': mapeamentoTeclas[chave]
+                                'direction': mapeamentoTeclas[tecla]
                             })
                             if resposta:
                                 self.estadoJogo = resposta
                     
-                    elif chave in [b'e', b'E']:  # Trocado de 'k'/'K' para 'e'/'E'
+                    elif tecla in [b'e', b'E']:
                         resposta = self.enviarComando({'type': 'enter_room'})
                         if resposta and resposta.get('status') == 'success':
                             self.estadoJogo = resposta['state']
                             time.sleep(0.1)
-
-                    elif chave in [b'q', b'Q']:
-                        self.executando = False
+                    elif tecla in [b'q', b'Q']:
+                        self.ativo = False
                         break
-            
-            except Exception:
+            except Exception as e:
+                print(f"Erro ao processar entrada: {e}")
                 continue
-    
+
     def configurarTerminal(self):
         print("\033[2J", end='')
         print("\033[?25l", end='')
@@ -192,24 +204,24 @@ class ClienteJogo:
     def restaurarTerminal(self):
         print("\033[?25h", end='')
         sys.stdout.flush()
-    
+
     def executar(self):
         if self.conectar():
             try:
                 self.configurarTerminal()
                 
-                threadEntrada = threading.Thread(target=self.tratarEntrada)
+                threadEntrada = threading.Thread(target=self.processarEntrada)
                 threadEntrada.daemon = True
                 threadEntrada.start()
 
-                while self.executando:
+                while self.ativo:
                     try:
                         self.atualizarEstadoJogo()
                         self.desenharTela()
                         time.sleep(0.05)
-                    except Exception:
+                    except Exception as e:
+                        print(f"Erro no loop principal: {e}")
                         continue
-                
             finally:
                 self.restaurarTerminal()
                 self.socket.close()
@@ -217,9 +229,10 @@ class ClienteJogo:
 if __name__ == "__main__":
     while True:
         try:
-            cliente = ClienteJogo()
+            cliente = Jogador()
             cliente.executar()
-            if not cliente.executando:
+            if not cliente.ativo:
                 break
-        except Exception:
+        except Exception as e:
+            print(f"Erro ao iniciar cliente: {e}")
             continue
