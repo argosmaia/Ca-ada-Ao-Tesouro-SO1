@@ -1,4 +1,4 @@
-# Jogo.py corrigido para movimentação independente de jogadores
+# Jogo.py ajustado para exibição correta e movimentação na sala do tesouro
 import socket
 import threading
 import json
@@ -18,7 +18,6 @@ class Jogo:
         self.tesourosColetados = 0
         self.tesourosTotais = self.numeroTesouros
         self.travaMapa = Lock()
-        self.jogoFinalizado = False
 
         # Sala do Tesouro
         self.tamanhoSala = self.tamanhoMapa // 2
@@ -32,7 +31,6 @@ class Jogo:
         init(autoreset=True)
         self._inicializarMapa()
         self.socketServidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socketServidor.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socketServidor.bind((self.host, self.port))
         self.socketServidor.listen(5)
 
@@ -63,9 +61,11 @@ class Jogo:
                 return {'status': 'error', 'message': 'Jogador não encontrado'}
 
             if jogador.get('naSala'):
+                # Movimentação dentro da sala do tesouro
                 mapaAtual = self.salaTesouro
                 tamanhoAtual = self.tamanhoSala
             else:
+                # Movimentação no mapa principal
                 mapaAtual = self.mapa
                 tamanhoAtual = self.tamanhoMapa
 
@@ -81,8 +81,11 @@ class Jogo:
             elif direcao == 'right' and y < tamanhoAtual - 1:
                 novoY += 1
 
+            # Verifica se a posição mudou
             if (novoX, novoY) != (x, y):
                 jogador['position'] = (novoX, novoY)
+
+                # Coleta tesouro se houver
                 if mapaAtual[novoX][novoY].isdigit():
                     jogador['score'] += int(mapaAtual[novoX][novoY])
                     self.tesourosColetados += 1
@@ -96,17 +99,21 @@ class Jogo:
             if not jogador:
                 return {'status': 'error', 'message': 'Jogador não encontrado'}
 
+            # Verifica se a sala está ocupada
             if self.salaOcupada:
                 return {'status': 'error', 'message': 'Sala ocupada, aguarde sua vez'}
 
+            # Verifica se o jogador está na posição da entrada
             if jogador['position'] != self.posicaoSala:
                 return {'status': 'error', 'message': 'Você não está na entrada da sala do tesouro'}
 
+            # Ocupa a sala
             self.salaOcupada = True
             self.jogadorNaSala = idJogador
             jogador['naSala'] = True
-            jogador['position'] = (0, 0)
+            jogador['position'] = (0, 0)  # Posição inicial na sala
 
+            # Timer para saída automática
             threading.Thread(target=self._sairSalaAposTempo, args=(idJogador,), daemon=True).start()
 
             return {'status': 'success', 'state': self.obterEstadoJogo(idJogador)}
@@ -130,43 +137,30 @@ class Jogo:
             return {
                 'map': self.salaTesouro,
                 'jogadores': {k: v for k, v in self.jogadores.items() if v.get('naSala')},
-                'treasures_left': None  
+                'treasures_left': self.tesourosTotais - self.tesourosColetados
             }
         else:
-            mapaComJogadores = [linha[:] for linha in self.mapa]
+            mapaComJogadores = [linha[:] for linha in self.mapa]  # Copia do mapa
             for pid, dados in self.jogadores.items():
                 if not dados.get('naSala'):
                     x, y = dados['position']
-                    if pid == idJogador:
-                        mapaComJogadores[x][y] = 'P'
-                    else:
-                        mapaComJogadores[x][y] = 'J'
+                    mapaComJogadores[x][y] = 'P' if pid == idJogador else 'J'
 
             return {
                 'map': mapaComJogadores,
                 'jogadores': self.jogadores,
-                'treasures_left': None  # Ou remova esta linha completamente
+                'treasures_left': self.tesourosTotais - self.tesourosColetados
             }
 
     def finalizarJogo(self):
-        with self.travaMapa:  # Garante que apenas uma thread possa finalizar o jogo
-            if self.jogoFinalizado:  # Verifica se o jogo já foi finalizado
-                return
-            self.jogoFinalizado = True
-            # Identificar o maior score
-            pontuacoes = [jogador['score'] for jogador in self.jogadores.values()]
-            maior_pontuacao = max(pontuacoes, default=0)
-            vencedores = [
-                (id_jogador, dados) for id_jogador, dados in self.jogadores.items()
-                if dados['score'] == maior_pontuacao
-            ]
-
-            if len(vencedores) > 1:
-                print(Fore.RED + "\nEmpate! Múltiplos jogadores alcançaram a mesma pontuação máxima." + Style.RESET_ALL)
-            else:
-                id_vencedor, dados_vencedor = vencedores[0]
-                print(Fore.GREEN + f"\nJogo finalizado! Jogador {id_vencedor} venceu com {dados_vencedor['score']} pontos!" + Style.RESET_ALL)
-
+        vencedor = max(self.jogadores.items(), key=lambda x: x[1]['score'], default=(None, {'score': 0}))
+        idVencedor, dadosVencedor = vencedor
+        print(Fore.GREEN + f"\nJogo finalizado! Jogador {idVencedor} venceu com {dadosVencedor['score']} pontos!" + Style.RESET_ALL)
+        return {
+            'status': 'game_over',
+            'winner': idVencedor,
+            'score': dadosVencedor['score']
+        }
 
     def processarComando(self, idJogador, comando):
         if comando['type'] == 'move':
@@ -188,7 +182,8 @@ class Jogo:
                 resposta = self.processarComando(idJogador, comando)
                 socketCliente.send(json.dumps(resposta).encode())
 
-                if all(all(celula == "." for celula in linha) for linha in self.mapa) and all(all(celula == "." for celula in linha) for linha in self.salaTesouro):
+                # Finaliza o jogo se todos os tesouros foram coletados
+                if self.tesourosColetados >= self.tesourosTotais:
                     self.finalizarJogo()
                     break
 
@@ -196,7 +191,6 @@ class Jogo:
             pass
         finally:
             self.jogadores.pop(idJogador, None)
-            socketCliente.close()
 
     def adicionarJogador(self, idJogador):
         while True:
@@ -221,4 +215,4 @@ class Jogo:
             self.socketServidor.close()
 
 if __name__ == "__main__":
-    Jogo().executar() #
+    Jogo().executar()
