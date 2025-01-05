@@ -28,6 +28,8 @@ class Jogo:
         self.jogadorNaSala = None
         self.travaSala = Lock()
 
+        self.travaFinalizacao = Lock() # Evita que o jogo seja finalizado mais de uma vez
+
         init(autoreset=True)
         self._inicializarMapa()
         self.socketServidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -35,7 +37,7 @@ class Jogo:
         self.socketServidor.listen(5)
 
     def _inicializarMapa(self):
-        # Coloca tesouros no mapa principal
+        # Coloca tesouros no mapa
         for _ in range(self.numeroTesouros):
             while True:
                 x, y = random.randint(0, self.tamanhoMapa - 1), random.randint(0, self.tamanhoMapa - 1)
@@ -165,14 +167,18 @@ class Jogo:
             }
 
     def finalizarJogo(self):
-        vencedor = max(self.jogadores.items(), key=lambda x: x[1]['score'], default=(None, {'score': 0}))
-        idVencedor, dadosVencedor = vencedor
-        print(Fore.GREEN + f"\nJogo finalizado! Jogador {idVencedor} venceu com {dadosVencedor['score']} pontos!" + Style.RESET_ALL)
-        return {
-            'status': 'game_over',
-            'winner': idVencedor,
-            'score': dadosVencedor['score']
-        }
+        with self.travaFinalizacao:  # Garante que apenas uma thread execute a finalização
+            if self.tesourosColetados < self.tesourosTotais:
+                return  # Evita finalizar o jogo mais de uma vez
+
+            vencedor = max(self.jogadores.items(), key=lambda x: x[1]['score'], default=(None, {'score': 0}))
+            idVencedor, dadosVencedor = vencedor
+            print(Fore.GREEN + f"\nJogo finalizado! Jogador {idVencedor} venceu com {dadosVencedor['score']} pontos!" + Style.RESET_ALL)
+            return {
+                'status': 'game_over',
+                'winner': idVencedor,
+                'score': dadosVencedor['score']
+            }
 
     def processarComando(self, idJogador, comando):
         if comando['type'] == 'move':
