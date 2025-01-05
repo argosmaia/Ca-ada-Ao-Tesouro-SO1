@@ -112,15 +112,21 @@ class Jogo:
             # Verifica se o jogador está na posição da entrada
             if jogador['position'] != self.posicaoSala:
                 return {'status': 'error', 'message': 'Você não está na entrada da sala do tesouro'}
-
+            
             # Ocupa a sala
             self.salaOcupada = True
             self.jogadorNaSala = idJogador
             jogador['naSala'] = True
             jogador['position'] = (0, 0)  # Posição inicial na sala
 
-            # Timer para saída automática
+            # saída automática
             threading.Thread(target=self._sairSalaAposTempo, args=(idJogador,), daemon=True).start()
+
+            if all(all(cell == '.' for cell in row) for row in self.salaTesouro):
+                self.salaTesouro = [['#' for _ in range(self.tamanhoSala)] for _ in range(self.tamanhoSala)] # Troca os tesouros por '#'
+                # Apaga a sala do mapa principal, troca X por "." e impede o uso das teclas e e E
+                self.mapa[self.posicaoSala[0]][self.posicaoSala[1]] = "."
+
 
             return {'status': 'success', 'state': self.obterEstadoJogo(idJogador)}
 
