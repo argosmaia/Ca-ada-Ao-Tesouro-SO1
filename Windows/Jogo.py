@@ -69,29 +69,35 @@ class Jogo:
                 mapaAtual = self.mapa
                 tamanhoAtual = self.tamanhoMapa
 
-            x, y = jogador['position']
-            novoX, novoY = x, y
+        x, y = jogador['position']
+        novoX, novoY = x, y
 
-            if direcao == 'up' and x > 0:
-                novoX -= 1
-            elif direcao == 'down' and x < tamanhoAtual - 1:
-                novoX += 1
-            elif direcao == 'left' and y > 0:
-                novoY -= 1
-            elif direcao == 'right' and y < tamanhoAtual - 1:
-                novoY += 1
+        if direcao == 'up' and x > 0:
+            novoX -= 1
+        elif direcao == 'down' and x < tamanhoAtual - 1:
+            novoX += 1
+        elif direcao == 'left' and y > 0:
+            novoY -= 1
+        elif direcao == 'right' and y < tamanhoAtual - 1:
+            novoY += 1
 
-            # Verifica se a posição mudou
-            if (novoX, novoY) != (x, y):
-                jogador['position'] = (novoX, novoY)
+        # Verifica se a nova posição está livre
+        for pid, dados in self.jogadores.items():
+            if dados['position'] == (novoX, novoY):
+                return {'status': 'error', 'message': 'Posição ocupada por outro jogador'}
 
-                # Coleta tesouro se houver
-                if mapaAtual[novoX][novoY].isdigit():
-                    jogador['score'] += int(mapaAtual[novoX][novoY])
-                    self.tesourosColetados += 1
-                    mapaAtual[novoX][novoY] = "."
+        # Verifica se a posição mudou
+        if (novoX, novoY) != (x, y):
+            jogador['position'] = (novoX, novoY)
 
-            return self.obterEstadoJogo(idJogador)
+            # Coleta tesouro se houver
+            if mapaAtual[novoX][novoY].isdigit():
+                jogador['score'] += int(mapaAtual[novoX][novoY])
+                self.tesourosColetados += 1
+                mapaAtual[novoX][novoY] = "."
+
+        return self.obterEstadoJogo(idJogador)
+
 
     def entrarSalaTesouro(self, idJogador):
         with self.travaSala:
@@ -215,4 +221,4 @@ class Jogo:
             self.socketServidor.close()
 
 if __name__ == "__main__":
-    Jogo().executar()
+    Jogo().executar() 
