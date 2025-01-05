@@ -72,7 +72,7 @@ class Jogador:
             buffer.append(linhaTexto)
 
         jogador = self.estadoJogo['jogadores'].get(str(self.idJogador), {})
-        buffer.append(f"Pontuação: {Fore.GREEN}{jogador.get('score', 0)}{Style.RESET_ALL} | Tesouros restantes: {Fore.YELLOW}{self.estadoJogo['treasures_left']}{Style.RESET_ALL}")
+        buffer.append(f"Pontuação: {Fore.GREEN}{jogador.get('score', 0)}{Style.RESET_ALL}")
         buffer.append("Controles: WASD/Setas para mover, E para entrar na sala, Q para sair")
         return "\n".join(buffer)
 

@@ -18,6 +18,7 @@ class Jogo:
         self.tesourosColetados = 0
         self.tesourosTotais = self.numeroTesouros
         self.travaMapa = Lock()
+        self.jogoFinalizado = False
 
         # Sala do Tesouro
         self.tamanhoSala = self.tamanhoMapa // 2
@@ -129,7 +130,7 @@ class Jogo:
             return {
                 'map': self.salaTesouro,
                 'jogadores': {k: v for k, v in self.jogadores.items() if v.get('naSala')},
-                'treasures_left': self.tesourosTotais - self.tesourosColetados
+                'treasures_left': None  
             }
         else:
             mapaComJogadores = [linha[:] for linha in self.mapa]
@@ -144,18 +145,28 @@ class Jogo:
             return {
                 'map': mapaComJogadores,
                 'jogadores': self.jogadores,
-                'treasures_left': self.tesourosTotais - self.tesourosColetados
+                'treasures_left': None  # Ou remova esta linha completamente
             }
 
     def finalizarJogo(self):
-        vencedor = max(self.jogadores.items(), key=lambda x: x[1]['score'], default=(None, {'score': 0}))
-        idVencedor, dadosVencedor = vencedor
-        print(Fore.GREEN + f"\nJogo finalizado! Jogador {idVencedor} venceu com {dadosVencedor['score']} pontos!" + Style.RESET_ALL)
-        return {
-            'status': 'game_over',
-            'winner': idVencedor,
-            'score': dadosVencedor['score']
-        }
+        with self.travaMapa:  # Garante que apenas uma thread possa finalizar o jogo
+            if self.jogoFinalizado:  # Verifica se o jogo já foi finalizado
+                return
+            self.jogoFinalizado = True
+            # Identificar o maior score
+            pontuacoes = [jogador['score'] for jogador in self.jogadores.values()]
+            maior_pontuacao = max(pontuacoes, default=0)
+            vencedores = [
+                (id_jogador, dados) for id_jogador, dados in self.jogadores.items()
+                if dados['score'] == maior_pontuacao
+            ]
+
+            if len(vencedores) > 1:
+                print(Fore.RED + "\nEmpate! Múltiplos jogadores alcançaram a mesma pontuação máxima." + Style.RESET_ALL)
+            else:
+                id_vencedor, dados_vencedor = vencedores[0]
+                print(Fore.GREEN + f"\nJogo finalizado! Jogador {id_vencedor} venceu com {dados_vencedor['score']} pontos!" + Style.RESET_ALL)
+
 
     def processarComando(self, idJogador, comando):
         if comando['type'] == 'move':
@@ -177,7 +188,7 @@ class Jogo:
                 resposta = self.processarComando(idJogador, comando)
                 socketCliente.send(json.dumps(resposta).encode())
 
-                if self.tesourosColetados >= self.tesourosTotais:
+                if all(all(celula == "." for celula in linha) for linha in self.mapa) and all(all(celula == "." for celula in linha) for linha in self.salaTesouro):
                     self.finalizarJogo()
                     break
 
@@ -185,6 +196,7 @@ class Jogo:
             pass
         finally:
             self.jogadores.pop(idJogador, None)
+            socketCliente.close()
 
     def adicionarJogador(self, idJogador):
         while True:
@@ -209,4 +221,4 @@ class Jogo:
             self.socketServidor.close()
 
 if __name__ == "__main__":
-    Jogo().executar()
+    Jogo().executar() #
